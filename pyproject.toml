@@ -13,6 +13,8 @@ dependencies = [
     "django-cors-headers>=4.3.1",
     "django-filter>=23.5",
     "django-environ>=0.11.2",
+    "dotenv>=0.9.9",
+    "rest-framework-simplejwt>=0.0.2",
 ]
 
 [project.optional-dependencies]

@@ -211,3 +211,20 @@ class TestHealthRecordAPI(TestCase):
         pass
 ```
 
+## Running Migrations with Docker Compose
+
+To create and apply database migrations inside your Docker environment, use the following commands:
+
+**Create new migrations (after changing models):**
+```bash
+docker compose run --rm web python manage.py makemigrations
+```
+
+**Apply migrations to the database:**
+```bash
+docker compose run --rm web python manage.py migrate
+```
+
+> **Tip:**  
+> - Replace `web` with the name of your Django service if it’s different in your `docker-compose.yml`.
+> - Always run these commands from your project root (where `manage.py` and `docker-compose.yml` are located).
