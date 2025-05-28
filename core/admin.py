@@ -12,11 +12,36 @@ class CustomUserCreationForm(forms.ModelForm):
     password2 = forms.CharField(label='Password confirmation', widget=forms.PasswordInput)
     available_days = forms.JSONField(required=False, widget=forms.HiddenInput())
 
+    # Add doctor schedule fields
+    monday = forms.BooleanField(required=False, label='Monday')
+    tuesday = forms.BooleanField(required=False, label='Tuesday')
+    wednesday = forms.BooleanField(required=False, label='Wednesday')
+    thursday = forms.BooleanField(required=False, label='Thursday')
+    friday = forms.BooleanField(required=False, label='Friday')
+    saturday = forms.BooleanField(required=False, label='Saturday')
+    sunday = forms.BooleanField(required=False, label='Sunday')
+
+    # Time slots for each day
+    monday_start = forms.TimeField(required=False, widget=forms.TimeInput(attrs={'type': 'time'}))
+    monday_end = forms.TimeField(required=False, widget=forms.TimeInput(attrs={'type': 'time'}))
+    tuesday_start = forms.TimeField(required=False, widget=forms.TimeInput(attrs={'type': 'time'}))
+    tuesday_end = forms.TimeField(required=False, widget=forms.TimeInput(attrs={'type': 'time'}))
+    wednesday_start = forms.TimeField(required=False, widget=forms.TimeInput(attrs={'type': 'time'}))
+    wednesday_end = forms.TimeField(required=False, widget=forms.TimeInput(attrs={'type': 'time'}))
+    thursday_start = forms.TimeField(required=False, widget=forms.TimeInput(attrs={'type': 'time'}))
+    thursday_end = forms.TimeField(required=False, widget=forms.TimeInput(attrs={'type': 'time'}))
+    friday_start = forms.TimeField(required=False, widget=forms.TimeInput(attrs={'type': 'time'}))
+    friday_end = forms.TimeField(required=False, widget=forms.TimeInput(attrs={'type': 'time'}))
+    saturday_start = forms.TimeField(required=False, widget=forms.TimeInput(attrs={'type': 'time'}))
+    saturday_end = forms.TimeField(required=False, widget=forms.TimeInput(attrs={'type': 'time'}))
+    sunday_start = forms.TimeField(required=False, widget=forms.TimeInput(attrs={'type': 'time'}))
+    sunday_end = forms.TimeField(required=False, widget=forms.TimeInput(attrs={'type': 'time'}))
+
     class Meta:
         model = User
         fields = ('username', 'email', 'role', 'first_name', 'last_name', 
                  'phone_number', 'address', 'location', 'date_of_birth',
-                 'specialization')
+                 'specialization', 'appointment_duration', 'max_patients_per_day')
 
     def clean_password2(self):
         password1 = self.cleaned_data.get("password1")
@@ -28,7 +53,40 @@ class CustomUserCreationForm(forms.ModelForm):
     def clean(self):
         cleaned_data = super().clean()
         if cleaned_data.get('role') == User.Role.DOCTOR:
-            cleaned_data['available_days'] = {}  # Initialize empty dict for doctors
+            if not cleaned_data.get('specialization'):
+                raise forms.ValidationError('Specialization is required for doctors')
+            
+            available_days = {}
+            days = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday']
+            
+            for day in days:
+                if cleaned_data.get(day):
+                    start_time = cleaned_data.get(f'{day}_start')
+                    end_time = cleaned_data.get(f'{day}_end')
+                    
+                    if not start_time or not end_time:
+                        raise forms.ValidationError(f'Please provide both start and end time for {day.capitalize()}')
+                    
+                    if start_time >= end_time:
+                        raise forms.ValidationError(f'End time must be after start time for {day.capitalize()}')
+                    
+                    available_days[day.upper()] = {
+                        'start_time': start_time.strftime('%H:%M'),
+                        'end_time': end_time.strftime('%H:%M'),
+                        'is_available': True
+                    }
+            
+            if not available_days:
+                raise forms.ValidationError('Please select at least one available day')
+            
+            cleaned_data['available_days'] = available_days
+            
+            if not cleaned_data.get('appointment_duration'):
+                raise forms.ValidationError('Appointment duration is required for doctors')
+            
+            if not cleaned_data.get('max_patients_per_day'):
+                raise forms.ValidationError('Maximum patients per day is required for doctors')
+
         return cleaned_data
 
     def save(self, commit=True):
@@ -130,35 +188,68 @@ class DoctorAppointmentForm(forms.ModelForm):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        if 'doctor' in self.data:
+        # Add time widget for better time selection
+        self.fields['start_time'].widget = forms.TimeInput(attrs={'type': 'time'})
+        self.fields['end_time'].widget = forms.TimeInput(attrs={'type': 'time'})
+        
+        # If we have a doctor and date, get available slots
+        if 'doctor' in self.data and 'appointment_date' in self.data:
             doctor_id = self.data.get('doctor')
             appointment_date = self.data.get('appointment_date')
             if doctor_id and appointment_date:
                 self.fields['available_slots'].choices = self.get_available_slots(doctor_id, appointment_date)
+                # Make start_time and end_time readonly if we have available slots
+                if self.fields['available_slots'].choices:
+                    self.fields['start_time'].widget.attrs['readonly'] = True
+                    self.fields['end_time'].widget.attrs['readonly'] = True
 
     def get_available_slots(self, doctor_id, appointment_date):
-        import json
+        try:
+            doctor = User.objects.get(id=doctor_id)
+            day_of_week = datetime.strptime(appointment_date, '%Y-%m-%d').strftime('%A').upper()
+            availability = doctor.get_availability(day_of_week)
 
-        doctor = User.objects.get(id=doctor_id)
-        day_of_week = datetime.strptime(appointment_date, '%Y-%m-%d').strftime('%A').upper()
-        availability = doctor.get_availability(day_of_week)
+            if not availability or not availability.get('is_available'):
+                return []
 
-        if not availability or not availability.get('is_available'):
+            start_time = datetime.strptime(availability['start_time'], '%H:%M').time()
+            end_time = datetime.strptime(availability['end_time'], '%H:%M').time()
+            duration = doctor.appointment_duration or 30  # Default to 30 minutes
+
+            # Get existing appointments for this day
+            existing_appointments = DoctorAppointment.objects.filter(
+                doctor=doctor,
+                appointment_date=appointment_date,
+                status__in=[User.AppointmentStatus.SCHEDULED]
+            ).exclude(id=self.instance.id if self.instance else None)
+
+            # Create list of booked times
+            booked_times = []
+            for appointment in existing_appointments:
+                booked_times.append((appointment.start_time, appointment.end_time))
+
+            # Generate available slots
+            slots = []
+            current_time = start_time
+            while current_time + timedelta(minutes=duration) <= end_time:
+                slot_end = current_time + timedelta(minutes=duration)
+                
+                # Check if this slot overlaps with any booked times
+                is_available = True
+                for booked_start, booked_end in booked_times:
+                    if (current_time < booked_end and slot_end > booked_start):
+                        is_available = False
+                        break
+
+                if is_available:
+                    slot_str = f"{current_time.strftime('%H:%M')} - {slot_end.strftime('%H:%M')}"
+                    slots.append((slot_str, slot_str))
+                
+                current_time = slot_end
+
+            return slots
+        except Exception as e:
             return []
-
-        start_time = datetime.strptime(availability['start_time'], '%H:%M').time()
-        end_time = datetime.strptime(availability['end_time'], '%H:%M').time()
-        duration = doctor.appointment_duration or 30  # Default to 30 minutes
-
-        slots = []
-        current_time = start_time
-        while current_time + timedelta(minutes=duration) <= end_time:
-            slot_end = current_time + timedelta(minutes=duration)
-            slot_str = f"{current_time.strftime('%H:%M')} - {slot_end.strftime('%H:%M')}"
-            slots.append((slot_str, slot_str))
-            current_time = slot_end
-
-        return slots
 
     def clean(self):
         cleaned_data = super().clean()
@@ -166,8 +257,9 @@ class DoctorAppointmentForm(forms.ModelForm):
         appointment_date = cleaned_data.get('appointment_date')
         start_time = cleaned_data.get('start_time')
         end_time = cleaned_data.get('end_time')
+        available_slots = cleaned_data.get('available_slots')
 
-        if doctor and appointment_date and start_time and end_time:
+        if doctor and appointment_date:
             day_of_week = appointment_date.strftime('%A').upper()
             availability = doctor.get_availability(day_of_week)
             
@@ -176,8 +268,19 @@ class DoctorAppointmentForm(forms.ModelForm):
             
             if not availability.get('is_available', False):
                 raise forms.ValidationError('Doctor is not available on this day')
-            
-            # Convert string times to time objects for comparison
+
+            # If a slot was selected, parse the times
+            if available_slots:
+                try:
+                    start_str, end_str = available_slots.split(' - ')
+                    start_time = datetime.strptime(start_str, '%H:%M').time()
+                    end_time = datetime.strptime(end_str, '%H:%M').time()
+                    cleaned_data['start_time'] = start_time
+                    cleaned_data['end_time'] = end_time
+                except ValueError:
+                    raise forms.ValidationError('Invalid time slot format')
+
+            # Validate times against doctor's availability
             try:
                 doctor_start_time = datetime.strptime(availability['start_time'], '%H:%M').time()
                 doctor_end_time = datetime.strptime(availability['end_time'], '%H:%M').time()
@@ -200,6 +303,17 @@ class DoctorAppointmentForm(forms.ModelForm):
             if overlapping.exists():
                 raise forms.ValidationError('This time slot overlaps with another appointment')
 
+            # Check if doctor has reached max patients for the day
+            if doctor.max_patients_per_day:
+                daily_appointments = DoctorAppointment.objects.filter(
+                    doctor=doctor,
+                    appointment_date=appointment_date,
+                    status__in=[User.AppointmentStatus.SCHEDULED]
+                ).exclude(id=self.instance.id if self.instance else None).count()
+                
+                if daily_appointments >= doctor.max_patients_per_day:
+                    raise forms.ValidationError('Doctor has reached maximum number of patients for this day')
+
         return cleaned_data
 
 @admin.register(User)
@@ -220,6 +334,21 @@ class CustomUserAdmin(UserAdmin):
         }),
         ('Contact info', {
             'fields': ('phone_number', 'address', 'location')
+        }),
+        ('Doctor Schedule', {
+            'fields': (
+                'appointment_duration',
+                'max_patients_per_day',
+                ('monday', 'monday_start', 'monday_end'),
+                ('tuesday', 'tuesday_start', 'tuesday_end'),
+                ('wednesday', 'wednesday_start', 'wednesday_end'),
+                ('thursday', 'thursday_start', 'thursday_end'),
+                ('friday', 'friday_start', 'friday_end'),
+                ('saturday', 'saturday_start', 'saturday_end'),
+                ('sunday', 'sunday_start', 'sunday_end'),
+            ),
+            'classes': ('collapse',),
+            'description': 'These fields are only required for doctors'
         }),
     )
     

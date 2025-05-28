@@ -1,0 +1,338 @@
+{
+	"info": {
+		"_postman_id": "00611d80-11fa-46ba-ab9c-5003abfb82f5",
+		"name": "Health Record API Copy",
+		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+		"_exporter_id": "38404598"
+	},
+	"item": [
+		{
+			"name": "Appointments",
+			"item": [
+				{
+					"name": "Get Available Doctors",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{TOKEN}}"
+							}
+						],
+						"url": {
+							"raw": "{{BASE_URL}}/api/appointments/available_doctors/",
+							"host": [
+								"{{BASE_URL}}"
+							],
+							"path": [
+								"api",
+								"appointments",
+								"available_doctors",
+								""
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Check Doctor Availability",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{TOKEN}}"
+							}
+						],
+						"url": {
+							"raw": "{{BASE_URL}}/api/appointments/doctor_availability/?doctor_id=3&start_date=2024-05-28&end_date=2024-06-28",
+							"host": [
+								"{{BASE_URL}}"
+							],
+							"path": [
+								"api",
+								"appointments",
+								"doctor_availability",
+								""
+							],
+							"query": [
+								{
+									"key": "doctor_id",
+									"value": "3"
+								},
+								{
+									"key": "start_date",
+									"value": "2024-05-28"
+								},
+								{
+									"key": "end_date",
+									"value": "2024-06-28"
+								}
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Book Appointment",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{TOKEN}}"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"doctor\": 1,\n    \"appointment_date\": \"2024-05-28\",\n    \"start_time\": \"09:00\",\n    \"end_time\": \"09:30\",\n    \"notes\": \"Initial consultation\"\n}"
+						},
+						"url": {
+							"raw": "{{BASE_URL}}/api/appointments/book/",
+							"host": [
+								"{{BASE_URL}}"
+							],
+							"path": [
+								"api",
+								"appointments",
+								"book",
+								""
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Cancel Appointment",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{TOKEN}}"
+							}
+						],
+						"url": {
+							"raw": "{{BASE_URL}}/api/appointments/1/cancel/",
+							"host": [
+								"{{BASE_URL}}"
+							],
+							"path": [
+								"api",
+								"appointments",
+								"1",
+								"cancel",
+								""
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Reschedule Appointment",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{TOKEN}}"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"appointment_date\": \"2024-05-29\",\n    \"start_time\": \"10:00\",\n    \"end_time\": \"10:30\"\n}"
+						},
+						"url": {
+							"raw": "{{BASE_URL}}/api/appointments/1/reschedule/",
+							"host": [
+								"{{BASE_URL}}"
+							],
+							"path": [
+								"api",
+								"appointments",
+								"1",
+								"reschedule",
+								""
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "List My Appointments",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{TOKEN}}"
+							}
+						],
+						"url": {
+							"raw": "{{BASE_URL}}/api/appointments/",
+							"host": [
+								"{{BASE_URL}}"
+							],
+							"path": [
+								"api",
+								"appointments",
+								""
+							]
+						}
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "Authentication",
+			"item": [
+				{
+					"name": "Login",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"email\": \"alyhassan862@gmail.com\",\n    \"password\": \"aicu123!@\",\n    \"username\": \"aicu\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/auth/login/",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"auth",
+								"login",
+								""
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Register",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"username\": \"drjohn\",\n    \"email\": \"doctor@example.com\",\n    \"password\": \"securepassword123!@#\",\n    \"first_name\": \"John\",\n    \"last_name\": \"Doe\",\n    \"role\": \"DOCTOR\",\n    \"phone_number\": \"1234567890\",\n    \"address\": \"123 Medical St\",\n    \"location\": \"City Hospital\",\n    \"date_of_birth\": \"1980-01-01\",\n    \"appointment_duration\": 20,\n    \"max_patients_per_day\": 10,\n    \"available_days\": {\n        \"monday\": {\n            \"is_available\": true,\n            \"start_time\": \"09:00\",\n            \"end_time\": \"17:00\"\n        },\n        \"tuesday\": {\n            \"is_available\": false,\n            \"start_time\": null,\n            \"end_time\": null\n        },\n        \"wednesday\": {\n            \"is_available\": true,\n            \"start_time\": \"09:00\",\n            \"end_time\": \"17:00\"\n        },\n        \"thursday\": {\n            \"is_available\": false,\n            \"start_time\": null,\n            \"end_time\": null\n        },\n        \"friday\": {\n            \"is_available\": true,\n            \"start_time\": \"09:00\",\n            \"end_time\": \"17:00\"\n        },\n        \"saturday\": {\n            \"is_available\": false,\n            \"start_time\": null,\n            \"end_time\": null\n        },\n        \"sunday\": {\n            \"is_available\": false,\n            \"start_time\": null,\n            \"end_time\": null\n        }\n    }\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/auth/register/",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"auth",
+								"register",
+								""
+							]
+						}
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "Admin Operations",
+			"item": [
+				{
+					"name": "List All Users",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/users/",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"users",
+								""
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "List All Doctors",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/users/doctors/",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"users",
+								"doctors",
+								""
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "List All Patients",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{token}}"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/users/patients/",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"users",
+								"patients",
+								""
+							]
+						}
+					},
+					"response": []
+				}
+			]
+		}
+	]
+}
