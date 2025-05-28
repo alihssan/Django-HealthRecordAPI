@@ -38,3 +38,6 @@ htmlcov/
 
 # Misc
 .DS_Store
+
+media/
+staticfiles/
