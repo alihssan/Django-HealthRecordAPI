@@ -47,11 +47,7 @@ class User(AbstractUser):
         null=True,
         help_text="Doctor's specialization (e.g., Cardiology, Pediatrics)"
     )
-    available_days = models.JSONField(
-        null=True, 
-        blank=True,
-        help_text="List of available days with time slots"
-    )
+    available_days = models.JSONField(default=dict, blank=True, null=True)
     appointment_duration = models.IntegerField(
         null=True, 
         blank=True,
