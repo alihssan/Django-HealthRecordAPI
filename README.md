@@ -226,5 +226,146 @@ docker compose run --rm web python manage.py migrate
 ```
 
 > **Tip:**  
-> - Replace `web` with the name of your Django service if it’s different in your `docker-compose.yml`.
+> - Replace `web` with the name of your Django service if it's different in your `docker-compose.yml`.
 > - Always run these commands from your project root (where `manage.py` and `docker-compose.yml` are located).
+
+## Additional Services
+
+### Upstash Redis Integration
+
+1. Sign up for Upstash Redis:
+   - Go to [Upstash Console](https://console.upstash.com/)
+   - Create a new Redis database
+   - Copy the REST API URL and token
+
+2. Add Upstash credentials to `.local.env`:
+   ```bash
+   UPSTASH_REDIS_URL=your_redis_url
+   UPSTASH_REDIS_TOKEN=your_redis_token
+   ```
+
+3. Install required packages:
+   ```bash
+   uv pip install django-redis redis
+   ```
+
+4. Configure Redis in `settings.py`:
+   ```python
+   CACHES = {
+       "default": {
+           "BACKEND": "django_redis.cache.RedisCache",
+           "LOCATION": os.getenv("UPSTASH_REDIS_URL"),
+           "OPTIONS": {
+               "CLIENT_CLASS": "django_redis.client.DefaultClient",
+               "PASSWORD": os.getenv("UPSTASH_REDIS_TOKEN"),
+           }
+       }
+   }
+   ```
+
+5. Configure Celery for async tasks:
+   ```python
+   # settings.py
+   CELERY_BROKER_URL = os.getenv("UPSTASH_REDIS_URL")
+   CELERY_RESULT_BACKEND = os.getenv("UPSTASH_REDIS_URL")
+   ```
+
+### Mailjet Integration
+
+1. Sign up for Mailjet:
+   - Go to [Mailjet](https://www.mailjet.com/)
+   - Create an account and get API credentials
+
+2. Add Mailjet credentials to `.local.env`:
+   ```bash
+   MAILJET_API_KEY=your_api_key
+   MAILJET_API_SECRET=your_api_secret
+   MAILJET_SENDER_EMAIL=your_verified_sender_email
+   ```
+
+3. Install Mailjet package:
+   ```bash
+   uv pip install mailjet-rest
+   ```
+
+4. Configure email settings in `settings.py`:
+   ```python
+   EMAIL_BACKEND = 'healthrecords.core.email.MailjetEmailBackend'
+   MAILJET_API_KEY = os.getenv('MAILJET_API_KEY')
+   MAILJET_API_SECRET = os.getenv('MAILJET_API_SECRET')
+   DEFAULT_FROM_EMAIL = os.getenv('MAILJET_SENDER_EMAIL')
+   ```
+
+5. Create custom email backend (`healthrecords/core/email.py`):
+   ```python
+   from django.core.mail.backends.base import BaseEmailBackend
+   from mailjet_rest import Client
+   import os
+
+   class MailjetEmailBackend(BaseEmailBackend):
+       def __init__(self, *args, **kwargs):
+           super().__init__(*args, **kwargs)
+           self.mailjet = Client(
+               auth=(os.getenv('MAILJET_API_KEY'), os.getenv('MAILJET_API_SECRET')),
+               version='v3.1'
+           )
+
+       def send_messages(self, email_messages):
+           for message in email_messages:
+               data = {
+                   'Messages': [{
+                       'From': {'Email': message.from_email},
+                       'To': [{'Email': recipient} for recipient in message.to],
+                       'Subject': message.subject,
+                       'TextPart': message.body,
+                   }]
+               }
+               self.mailjet.send.create(data=data)
+   ```
+
+### Async Task Processing
+
+1. Create Celery configuration (`healthrecords/core/celery.py`):
+   ```python
+   import os
+   from celery import Celery
+
+   os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'healthrecords.settings')
+
+   app = Celery('healthrecords')
+   app.config_from_object('django.conf:settings', namespace='CELERY')
+   app.autodiscover_tasks()
+   ```
+
+2. Add Celery worker to `docker-compose.yml`:
+   ```yaml
+   services:
+     # ... existing services ...
+     
+     celery:
+       build: .
+       command: celery -A healthrecords.core.celery worker --loglevel=info
+       volumes:
+         - .:/app
+       env_file:
+         - .local.env
+       depends_on:
+         - web
+         - db
+   ```
+
+3. Example async task (`healthrecords/notifications/tasks.py`):
+   ```python
+   from healthrecords.core.celery import app
+   from django.core.mail import send_mail
+
+   @app.task
+   def send_notification_email(recipient_email, subject, message):
+       send_mail(
+           subject=subject,
+           message=message,
+           from_email=None,  # Uses DEFAULT_FROM_EMAIL
+           recipient_list=[recipient_email],
+           fail_silently=False,
+       )
+   ```
