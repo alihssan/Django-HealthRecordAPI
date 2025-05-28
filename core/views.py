@@ -29,6 +29,7 @@ from .serializers import (
     DoctorAvailabilityResponseSerializer
 )
 from .permissions import IsPatient
+import time
 
 User = get_user_model()
 
@@ -432,13 +433,15 @@ class AppointmentViewSet(viewsets.ModelViewSet):
             serializer.is_valid(raise_exception=True)
             appointment = serializer.save()
 
-            # Create initial health record for the appointment
+            # Create empty health record for the appointment
             health_record = HealthRecord.objects.create(
+                record_id=f"HR{int(time.time())}",
                 record_type=HealthRecord.RecordType.CONSULTATION,
                 title=f"Appointment with Dr. {appointment.doctor.get_full_name()}",
-                description=f"Initial consultation appointment scheduled for {appointment.appointment_date}",
+                description="",  # Empty description
                 patient=request.user,
-                doctor=appointment.doctor
+                doctor=appointment.doctor,
+                attachments=None  # No attachments initially
             )
 
             return Response({
@@ -447,7 +450,9 @@ class AppointmentViewSet(viewsets.ModelViewSet):
                 'health_record': {
                     'id': health_record.record_id,
                     'title': health_record.title,
-                    'type': health_record.record_type
+                    'type': health_record.record_type,
+                    'description': health_record.description,
+                    'created_at': health_record.created_at
                 }
             }, status=status.HTTP_201_CREATED)
 

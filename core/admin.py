@@ -6,6 +6,7 @@ from django.utils.html import format_html
 from datetime import datetime, timedelta
 from records.models import HealthRecord, DoctorAnnotation
 import time
+from django.contrib import messages
 
 class CustomUserCreationForm(forms.ModelForm):
     password1 = forms.CharField(label='Password', widget=forms.PasswordInput)
@@ -515,6 +516,34 @@ class DoctorAppointmentAdmin(admin.ModelAdmin):
 
     class Media:
         js = ('admin/js/doctor_appointment.js',)
+
+    def save_model(self, request, obj, form, change):
+        """Override save_model to create health record when appointment is created"""
+        if not change:  # If this is a new appointment
+            # First save the appointment
+            super().save_model(request, obj, form, change)
+            
+            # Create empty health record for the appointment
+            HealthRecord.objects.create(
+                record_id=f"HR{int(time.time())}",
+                record_type=HealthRecord.RecordType.CONSULTATION,
+                title=f"Appointment with Dr. {obj.doctor.get_full_name()}",
+                description="",  # Empty description
+                patient=obj.patient,
+                doctor=obj.doctor,
+                attachments=None  # No attachments initially
+            )
+        else:
+            super().save_model(request, obj, form, change)
+
+    def response_add(self, request, obj, post_url_continue=None):
+        """Customize the response after adding an appointment"""
+        self.message_user(
+            request,
+            f"Appointment created successfully. A health record has been created for this appointment.",
+            level=messages.SUCCESS
+        )
+        return super().response_add(request, obj, post_url_continue)
 
 def configure_admin_site(admin_site):
     """Configure the admin site with custom settings"""

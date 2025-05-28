@@ -1,26 +1,75 @@
 # Django Health Records API
 
-A secure and efficient API for managing patient health records with role-based access control for doctors and patients.
+A comprehensive healthcare management system built with Django REST Framework, featuring secure patient records management, appointment scheduling, and doctor-patient interactions.
 
 ## Features
 
-- 🔐 Secure token-based authentication with short-lived tokens (5-minute expiry)
-- 👤 User registration and role management (Patient/Doctor)
-- 📝 Health record management for patients
-- 👨‍⚕️ Doctor access to assigned patient records
-- 💬 Doctor annotations on patient records
-- 🔔 Real-time notifications for doctor assignments
-- 🛡️ Strict access control for sensitive health data
-- 🏗️ Modern Django REST Framework architecture
+### Core Features
+- 🔐 Secure authentication with JWT tokens
+- 👤 Role-based access (Admin/Doctor/Patient)
+- 📅 Appointment scheduling system
+- 📝 Health record management
+- 👨‍⚕️ Doctor availability management
+- 💬 Doctor annotations on records
+- 📎 File attachments for records
+- 🔔 Real-time notifications
+- 📱 RESTful API architecture
+
+### Security Features
+- JWT-based authentication
+- Role-based access control
+- Data encryption
+- Input validation
+- Rate limiting
+- CORS protection
+- Secure headers
 
 ## Tech Stack
 
+### Backend
 - Python 3.11.5
 - Django 5.2.1
 - Django REST Framework
 - PostgreSQL
+- Redis (for caching)
+- Celery (for async tasks)
+
+### Development Tools
 - Docker & Docker Compose
-- uv for dependency management
+- uv (dependency management)
+- pytest (testing)
+- coverage (test coverage)
+
+## System Architecture
+
+### Components
+1. **Authentication Layer**
+   - JWT token management
+   - Role-based permissions
+   - Token refresh mechanism
+
+2. **User Management**
+   - Multi-role user system
+   - Profile management
+   - Doctor scheduling
+
+3. **Appointment System**
+   - Booking management
+   - Schedule tracking
+   - Automatic record creation
+
+4. **Health Records**
+   - Multiple record types
+   - Doctor annotations
+   - File attachments
+   - Access control
+
+5. **Notification System**
+   - Real-time alerts
+   - Email notifications
+   - Appointment reminders
+
+### Database Schema
 
 ## Prerequisites
 
@@ -68,6 +117,11 @@ A secure and efficient API for managing patient health records with role-based a
 - `POST /api/doctors/annotations/` - Add annotation to record
 - `GET /api/doctors/notifications/` - Get assignment notifications
 
+### Appointment Management
+- `POST /api/appointments/book/` - Book appointment
+- `GET /api/appointments/available_doctors/` - Get available doctors
+- `POST /api/appointments/{id}/cancel/` - Cancel appointment
+
 ## Project Structure
 
 ```
@@ -84,16 +138,6 @@ django-healthrecordapi/
 ├── Dockerfile            # Docker build file
 └── pyproject.toml        # Project dependencies
 ```
-
-## Security Features
-
-- JWT-based authentication with short-lived tokens
-- Role-based access control (RBAC)
-- Data encryption at rest
-- Input validation and sanitization
-- Rate limiting
-- CORS configuration
-- Secure headers
 
 ## Development
 
@@ -385,3 +429,228 @@ docker compose run --rm web python manage.py createsuperuser
            fail_silently=False,
        )
    ```
+
+## API Documentation
+
+### Authentication Endpoints
+```
+POST /api/auth/register/
+  Register new user
+  Request:
+  {
+    "username": "string",
+    "email": "string",
+    "password": "string",
+    "role": "PATIENT|DOCTOR"
+  }
+  Response: { "user": {...}, "tokens": {...} }
+
+POST /api/auth/login/
+  User login
+  Request:
+  {
+    "username": "string",
+    "password": "string"
+  }
+  Response: { "access": "string", "refresh": "string" }
+
+POST /api/auth/refresh/
+  Refresh token
+  Request: { "refresh": "string" }
+  Response: { "access": "string" }
+```
+
+### User Management
+```
+GET /api/users/me/
+  Get current user profile
+  Response: { "user": {...} }
+
+PUT /api/users/me/
+  Update profile
+  Request: { "first_name": "string", ... }
+  Response: { "user": {...} }
+
+GET /api/users/doctors/
+  List doctors (Admin only)
+  Response: { "doctors": [...] }
+
+GET /api/users/patients/
+  List patients (Admin only)
+  Response: { "patients": [...] }
+```
+
+### Doctor Operations
+```
+GET /api/doctors/my_patients/
+  Get assigned patients
+  Response: { "patients": [...] }
+
+GET /api/doctors/availability/
+  Get schedule
+  Response: { "availability": {...} }
+
+PUT /api/doctors/availability/
+  Update schedule
+  Request: { "available_days": {...} }
+  Response: { "availability": {...} }
+```
+
+### Appointment Management
+```
+POST /api/appointments/book/
+  Book appointment
+  Request:
+  {
+    "doctor_id": "integer",
+    "appointment_date": "date",
+    "start_time": "time"
+  }
+  Response: { "appointment": {...}, "health_record": {...} }
+
+GET /api/appointments/available_doctors/
+  Get available doctors
+  Response: { "doctors": [...] }
+
+POST /api/appointments/{id}/cancel/
+  Cancel appointment
+  Response: { "appointment": {...} }
+```
+
+### Health Records
+```
+GET /api/records/
+  List records
+  Response: { "records": [...] }
+
+POST /api/records/
+  Create record
+  Request:
+  {
+    "record_type": "string",
+    "title": "string",
+    "description": "string"
+  }
+  Response: { "record": {...} }
+
+POST /api/records/{id}/add_annotation/
+  Add annotation
+  Request: { "content": "string" }
+  Response: { "annotation": {...} }
+```
+
+## Setup and Installation
+
+### Prerequisites
+- Docker and Docker Compose
+- Python 3.11.5+
+- uv (for local development)
+
+### Environment Setup
+1. Clone repository:
+   ```bash
+   git clone <repository-url>
+   cd django-healthrecordapi
+   ```
+
+2. Create environment file:
+   ```bash
+   cp .local.env.example .local.env
+   # Edit .local.env with your configuration
+   ```
+
+3. Build and start containers:
+   ```bash
+   docker compose up --build
+   ```
+
+### Database Management
+```bash
+# Create migrations
+docker compose run --rm web python manage.py makemigrations
+
+# Apply migrations
+docker compose run --rm web python manage.py migrate
+
+# Create superuser
+docker compose run --rm web python manage.py createsuperuser
+```
+
+### Development Setup
+1. Install uv:
+   ```bash
+   curl -LsSf https://astral.sh/uv/install.sh | sh
+   ```
+
+2. Create virtual environment:
+   ```bash
+   uv venv
+   source .venv/bin/activate  # Unix/macOS
+   .venv\Scripts\activate     # Windows
+   ```
+
+3. Install dependencies:
+   ```bash
+   uv pip install -r requirements.txt
+   ```
+
+## Testing
+
+### Running Tests
+```bash
+# All tests
+python manage.py test
+
+# Specific module
+python manage.py test healthrecords.tests.test_api
+
+# With coverage
+coverage run manage.py test
+coverage report
+```
+
+### Docker Testing
+```bash
+# Run all tests
+./run_tests.sh
+
+# Specific tests
+docker compose -f docker-compose.test.yml run --rm web python manage.py test healthrecords.tests.test_api
+```
+
+## Additional Services
+
+### Redis Integration
+1. Configure in `.local.env`:
+   ```
+   UPSTASH_REDIS_URL=your_redis_url
+   UPSTASH_REDIS_TOKEN=your_redis_token
+   ```
+
+2. Install packages:
+   ```bash
+   uv pip install django-redis redis
+   ```
+
+### Email Integration
+1. Configure in `.local.env`:
+   ```
+   MAILJET_API_KEY=your_api_key
+   MAILJET_API_SECRET=your_api_secret
+   MAILJET_SENDER_EMAIL=your_email
+   ```
+
+2. Install package:
+   ```bash
+   uv pip install mailjet-rest
+   ```
+
+## Contributing
+1. Fork the repository
+2. Create feature branch
+3. Commit changes
+4. Push to branch
+5. Create Pull Request
+
+## License
+This project is licensed under the MIT License - see the LICENSE file for details.
