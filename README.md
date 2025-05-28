@@ -225,9 +225,25 @@ docker compose run --rm web python manage.py makemigrations
 docker compose run --rm web python manage.py migrate
 ```
 
+**Reset database and volumes (if needed):**
+```bash
+# Stop containers and remove volumes
+docker compose down -v
+
+# Rebuild and start containers
+docker compose up --build
+
+# Run migrations
+docker compose run --rm web python manage.py migrate
+
+# Create superuser
+docker compose run --rm web python manage.py createsuperuser
+```
+
 > **Tip:**  
 > - Replace `web` with the name of your Django service if it's different in your `docker-compose.yml`.
 > - Always run these commands from your project root (where `manage.py` and `docker-compose.yml` are located).
+> - Use `docker compose down -v` with caution as it will delete all data in your database.
 
 ## Additional Services
 

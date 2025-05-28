@@ -3,7 +3,10 @@ from django.contrib.auth.admin import UserAdmin
 from django import forms
 from .models import User, Notification, DoctorAppointment
 from django.utils.html import format_html
-import datetime
+from datetime import datetime, timedelta
+from records.models import HealthRecord, DoctorAnnotation
+import time
+
 class CustomUserCreationForm(forms.ModelForm):
     password1 = forms.CharField(label='Password', widget=forms.PasswordInput)
     password2 = forms.CharField(label='Password confirmation', widget=forms.PasswordInput)
@@ -134,7 +137,6 @@ class DoctorAppointmentForm(forms.ModelForm):
                 self.fields['available_slots'].choices = self.get_available_slots(doctor_id, appointment_date)
 
     def get_available_slots(self, doctor_id, appointment_date):
-        from datetime import datetime, timedelta
         import json
 
         doctor = User.objects.get(id=doctor_id)
@@ -144,8 +146,8 @@ class DoctorAppointmentForm(forms.ModelForm):
         if not availability or not availability.get('is_available'):
             return []
 
-        start_time = datetime.strptime(availability['start_time'], '%H:%M')
-        end_time = datetime.strptime(availability['end_time'], '%H:%M')
+        start_time = datetime.strptime(availability['start_time'], '%H:%M').time()
+        end_time = datetime.strptime(availability['end_time'], '%H:%M').time()
         duration = doctor.appointment_duration or 30  # Default to 30 minutes
 
         slots = []
@@ -384,3 +386,125 @@ class DoctorAppointmentAdmin(admin.ModelAdmin):
 
     class Media:
         js = ('admin/js/doctor_appointment.js',)
+
+def configure_admin_site(admin_site):
+    """Configure the admin site with custom settings"""
+    admin_site.site_header = 'Health Records Admin'
+    admin_site.site_title = 'Health Records Admin Portal'
+    admin_site.index_title = 'Welcome to Health Records Admin Portal'
+
+class DoctorAnnotationInline(admin.TabularInline):
+    model = DoctorAnnotation
+    extra = 1
+    fields = ('doctor', 'content', 'created_at')
+    readonly_fields = ('created_at',)
+
+@admin.register(HealthRecord)
+class HealthRecordAdmin(admin.ModelAdmin):
+    list_display = ('record_id', 'title', 'patient', 'doctor', 'record_type', 'created_at')
+    list_filter = ('record_type', 'created_at', 'doctor')
+    search_fields = ('record_id', 'title', 'description', 'patient__username', 'doctor__username')
+    readonly_fields = ('record_id', 'created_at', 'updated_at')
+    inlines = [DoctorAnnotationInline]
+    
+    fieldsets = (
+        (None, {
+            'fields': ('record_id', 'record_type', 'title', 'description')
+        }),
+        ('Patient Information', {
+            'fields': ('patient', 'doctor')
+        }),
+        ('Attachments', {
+            'fields': ('attachments',),
+            'classes': ('collapse',)
+        }),
+        ('Timestamps', {
+            'fields': ('created_at', 'updated_at'),
+            'classes': ('collapse',)
+        }),
+    )
+
+    def get_queryset(self, request):
+        qs = super().get_queryset(request)
+        if request.user.is_superuser:
+            return qs
+        # For doctors, only show records of their assigned patients
+        if request.user.role == User.Role.DOCTOR:
+            return qs.filter(doctor=request.user)
+        # For patients, only show their own records
+        if request.user.role == User.Role.PATIENT:
+            return qs.filter(patient=request.user)
+        return qs
+
+    def has_add_permission(self, request):
+        # Only superusers and doctors can add records
+        return request.user.is_superuser or request.user.role == User.Role.DOCTOR
+
+    def has_change_permission(self, request, obj=None):
+        if request.user.is_superuser:
+            return True
+        # Doctors can only change records they're assigned to
+        if request.user.role == User.Role.DOCTOR:
+            return obj and obj.doctor == request.user
+        # Patients can only view their own records
+        if request.user.role == User.Role.PATIENT:
+            return obj and obj.patient == request.user
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        # Only superusers can delete records
+        return request.user.is_superuser
+
+    def save_model(self, request, obj, form, change):
+        if not change:  # If this is a new record
+            obj.record_id = f"HR{int(time.time())}"
+        super().save_model(request, obj, form, change)
+
+@admin.register(DoctorAnnotation)
+class DoctorAnnotationAdmin(admin.ModelAdmin):
+    list_display = ('doctor', 'record', 'created_at')
+    list_filter = ('created_at', 'doctor')
+    search_fields = ('doctor__username', 'record__title', 'content')
+    readonly_fields = ('created_at', 'updated_at')
+    
+    fieldsets = (
+        (None, {
+            'fields': ('record', 'doctor', 'content')
+        }),
+        ('Timestamps', {
+            'fields': ('created_at', 'updated_at'),
+            'classes': ('collapse',)
+        }),
+    )
+
+    def get_queryset(self, request):
+        qs = super().get_queryset(request)
+        if request.user.is_superuser:
+            return qs
+        # For doctors, only show their own annotations
+        if request.user.role == User.Role.DOCTOR:
+            return qs.filter(doctor=request.user)
+        # For patients, only show annotations on their records
+        if request.user.role == User.Role.PATIENT:
+            return qs.filter(record__patient=request.user)
+        return qs
+
+    def has_add_permission(self, request):
+        # Only doctors can add annotations
+        return request.user.role == User.Role.DOCTOR
+
+    def has_change_permission(self, request, obj=None):
+        if request.user.is_superuser:
+            return True
+        # Doctors can only change their own annotations
+        if request.user.role == User.Role.DOCTOR:
+            return obj and obj.doctor == request.user
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        if request.user.is_superuser:
+            return True
+        # Doctors can only delete their own annotations
+        if request.user.role == User.Role.DOCTOR:
+            return obj and obj.doctor == request.user
+        return False
