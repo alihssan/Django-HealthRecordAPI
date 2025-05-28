@@ -1,0 +1,34 @@
+{% extends "admin/base_site.html" %}
+{% load static %}
+
+{% block extrastyle %}
+{{ block.super }}
+<style>
+    :root {
+        --primary: #2c3e50;
+        --secondary: #34495e;
+        --accent: #3498db;
+    }
+    
+    #header {
+        background: var(--primary);
+        color: white;
+    }
+    
+    #branding h1 {
+        color: white;
+    }
+    
+    .module h2, .module caption {
+        background: var(--secondary);
+    }
+    
+    .button, input[type=submit], input[type=button], .submit-row input {
+        background: var(--accent);
+    }
+    
+    .button:hover, input[type=submit]:hover, input[type=button]:hover {
+        background: var(--secondary);
+    }
+</style>
+{% endblock %} 
