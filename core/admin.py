@@ -10,7 +10,6 @@ import time
 class CustomUserCreationForm(forms.ModelForm):
     password1 = forms.CharField(label='Password', widget=forms.PasswordInput)
     password2 = forms.CharField(label='Password confirmation', widget=forms.PasswordInput)
-    available_days = forms.JSONField(required=False, widget=forms.HiddenInput())
 
     # Add doctor schedule fields
     monday = forms.BooleanField(required=False, label='Monday')
@@ -79,7 +78,7 @@ class CustomUserCreationForm(forms.ModelForm):
             if not available_days:
                 raise forms.ValidationError('Please select at least one available day')
             
-            cleaned_data['available_days'] = available_days
+            self.instance.available_days = available_days
             
             if not cleaned_data.get('appointment_duration'):
                 raise forms.ValidationError('Appointment duration is required for doctors')
@@ -441,11 +440,12 @@ class CustomUserAdmin(UserAdmin):
                     start_time = form.cleaned_data.get(f'{day}_start')
                     end_time = form.cleaned_data.get(f'{day}_end')
                     
-                    available_days[day.upper()] = {
-                        'start_time': start_time.strftime('%H:%M'),
-                        'end_time': end_time.strftime('%H:%M'),
-                        'is_available': True
-                    }
+                    if start_time and end_time:
+                        available_days[day.upper()] = {
+                            'start_time': start_time.strftime('%H:%M'),
+                            'end_time': end_time.strftime('%H:%M'),
+                            'is_available': True
+                        }
             
             obj.available_days = available_days
         
@@ -536,22 +536,40 @@ class HealthRecordAdmin(admin.ModelAdmin):
     readonly_fields = ('record_id', 'created_at', 'updated_at')
     inlines = [DoctorAnnotationInline]
     
-    fieldsets = (
-        (None, {
-            'fields': ('record_id', 'record_type', 'title', 'description')
-        }),
-        ('Patient Information', {
-            'fields': ('patient', 'doctor')
-        }),
-        ('Attachments', {
-            'fields': ('attachments',),
-            'classes': ('collapse',)
-        }),
-        ('Timestamps', {
-            'fields': ('created_at', 'updated_at'),
-            'classes': ('collapse',)
-        }),
-    )
+    def get_fieldsets(self, request, obj=None):
+        if request.user.role == User.Role.PATIENT:
+            return (
+                (None, {
+                    'fields': ('record_id', 'record_type', 'title', 'description')
+                }),
+                ('Patient Information', {
+                    'fields': ('doctor',)
+                }),
+                ('Attachments', {
+                    'fields': ('attachments',),
+                    'classes': ('collapse',)
+                }),
+                ('Timestamps', {
+                    'fields': ('created_at', 'updated_at'),
+                    'classes': ('collapse',)
+                }),
+            )
+        return (
+            (None, {
+                'fields': ('record_id', 'record_type', 'title', 'description')
+            }),
+            ('Patient Information', {
+                'fields': ('patient', 'doctor')
+            }),
+            ('Attachments', {
+                'fields': ('attachments',),
+                'classes': ('collapse',)
+            }),
+            ('Timestamps', {
+                'fields': ('created_at', 'updated_at'),
+                'classes': ('collapse',)
+            }),
+        )
 
     def get_queryset(self, request):
         qs = super().get_queryset(request)
@@ -587,6 +605,9 @@ class HealthRecordAdmin(admin.ModelAdmin):
     def save_model(self, request, obj, form, change):
         if not change:  # If this is a new record
             obj.record_id = f"HR{int(time.time())}"
+            # If the user is a patient, automatically set them as the patient
+            if request.user.role == User.Role.PATIENT:
+                obj.patient = request.user
         super().save_model(request, obj, form, change)
 
 @admin.register(DoctorAnnotation)
