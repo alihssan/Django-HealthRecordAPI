@@ -10,7 +10,7 @@ from .views import (
 
 router = DefaultRouter()
 router.register(r'users', UserManagementViewSet)
-router.register(r'doctors', DoctorViewSet, basename='doctors')
+router.register(r'doctors', DoctorViewSet, basename='doctor')
 router.register(r'patients', PatientViewSet, basename='patients')
 
 

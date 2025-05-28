@@ -10,9 +10,11 @@ from .serializers import (
     UserCreateSerializer, 
     UserUpdateSerializer,
     LoginSerializer,
-    RegisterSerializer
+    RegisterSerializer,
+    DoctorAvailabilityUpdateSerializer
 )
 from .permissions import IsAdminUser, IsDoctor, IsPatient
+from rest_framework_simplejwt.authentication import JWTAuthentication
 
 User = get_user_model()
 
@@ -32,10 +34,20 @@ class RegisterView(APIView):
         serializer = RegisterSerializer(data=request.data)
         if serializer.is_valid():
             user = serializer.save()
-            return Response({
+            
+            # Customize response based on user role
+            response_data = {
                 'message': 'User registered successfully',
                 'user': UserSerializer(user).data
-            }, status=status.HTTP_201_CREATED)
+            }
+            
+            # If user is a patient, remove doctor-specific fields
+            if user.role == User.Role.PATIENT:
+                response_data['user'].pop('appointment_duration', None)
+                response_data['user'].pop('max_patients_per_day', None)
+                response_data['user'].pop('available_days', None)
+            
+            return Response(response_data, status=status.HTTP_201_CREATED)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 class UserManagementViewSet(viewsets.ModelViewSet):
@@ -44,13 +56,29 @@ class UserManagementViewSet(viewsets.ModelViewSet):
     """
     queryset = User.objects.all()
     serializer_class = UserSerializer
+    authentication_classes = [JWTAuthentication]
 
     def get_permissions(self):
-        if self.action == 'destroy':
-            return [IsAdminUser()]
-        elif self.action == 'list':
+        if self.action in ['list', 'destroy']:
             return [IsAdminUser()]
         return [permissions.IsAuthenticated()]
+
+    def get_queryset(self):
+        if self.action == 'list':
+            # Only admin can see all users
+            if not self.request.user.is_superuser:
+                return User.objects.none()
+            return User.objects.all()
+        return User.objects.all()
+
+    def list(self, request, *args, **kwargs):
+        # Additional check for admin role
+        if not request.user.is_superuser:
+            return Response(
+                {'message': 'Only administrators can view all users'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+        return super().list(request, *args, **kwargs)
 
     def get_serializer_class(self):
         if self.action == 'create':
@@ -101,14 +129,24 @@ class UserManagementViewSet(viewsets.ModelViewSet):
 
     @action(detail=False, methods=['get'])
     def doctors(self, request):
-        """Get all doctors"""
+        """Get all doctors (Admin only)"""
+        if not request.user.is_superuser:
+            return Response(
+                {'message': 'Only administrators can view all doctors'},
+                status=status.HTTP_403_FORBIDDEN
+            )
         doctors = User.objects.filter(role=User.Role.DOCTOR)
         serializer = self.get_serializer(doctors, many=True)
         return Response(serializer.data)
 
     @action(detail=False, methods=['get'])
     def patients(self, request):
-        """Get all patients"""
+        """Get all patients (Admin only)"""
+        if not request.user.is_superuser:
+            return Response(
+                {'message': 'Only administrators can view all patients'},
+                status=status.HTTP_403_FORBIDDEN
+            )
         patients = User.objects.filter(role=User.Role.PATIENT)
         serializer = self.get_serializer(patients, many=True)
         return Response(serializer.data)
@@ -126,16 +164,77 @@ class DoctorViewSet(viewsets.ModelViewSet):
     """
     permission_classes = [IsDoctor]
     serializer_class = UserSerializer
+    authentication_classes = [JWTAuthentication]
 
     def get_queryset(self):
         return User.objects.filter(role=User.Role.DOCTOR)
 
+    def get_serializer_class(self):
+        if self.action == 'update_availability':
+            return DoctorAvailabilityUpdateSerializer
+        elif self.action == 'update_profile':
+            return UserUpdateSerializer
+        return UserSerializer
+
     @action(detail=False, methods=['get'])
     def my_patients(self, request):
         """Get all patients assigned to the doctor"""
-        patients = User.objects.filter(assigned_doctor=request.user)
-        serializer = self.get_serializer(patients, many=True)
+        try:
+            # Try to get patients through the reverse relationship
+            patients = User.objects.filter(role=User.Role.PATIENT, doctor_appointments__doctor=request.user).distinct()
+            if not patients.exists():
+                return Response({
+                    'message': 'No patients assigned yet',
+                    'patients': []
+                })
+            
+            serializer = self.get_serializer(patients, many=True)
+            return Response({
+                'message': 'Patients retrieved successfully',
+                'patients': serializer.data
+            })
+        except Exception as e:
+            return Response({
+                'message': 'Error retrieving patients',
+                'error': str(e)
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+    @action(detail=False, methods=['get', 'put'])
+    def availability(self, request):
+        """Get or update doctor's availability"""
+        doctor = request.user
+        
+        if request.method == 'GET':
+            serializer = DoctorAvailabilityUpdateSerializer(doctor)
+            return Response(serializer.data)
+        
+        # PUT request
+        serializer = DoctorAvailabilityUpdateSerializer(doctor, data=request.data, partial=True)
+        if serializer.is_valid():
+            serializer.save()
+            return Response({
+                'message': 'Availability updated successfully',
+                'availability': serializer.data
+            })
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+    @action(detail=False, methods=['get'])
+    def profile(self, request):
+        """Get doctor's profile"""
+        serializer = self.get_serializer(request.user)
         return Response(serializer.data)
+
+    @action(detail=False, methods=['put'])
+    def update_profile(self, request):
+        """Update doctor's profile"""
+        serializer = UserUpdateSerializer(request.user, data=request.data, partial=True)
+        if serializer.is_valid():
+            user = serializer.save()
+            return Response({
+                'message': 'Profile updated successfully',
+                'user': UserSerializer(user).data
+            })
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 class PatientViewSet(viewsets.ModelViewSet):
     """
