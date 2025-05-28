@@ -2,10 +2,11 @@ from django.db import models
 from core.models import User
 import os
 from django.core.exceptions import ValidationError
+import time
 
 def health_record_file_path(instance, filename):
-    # Generate file path: health_records/record_id/filename
-    return f'health_records/{instance.record_id}/{filename}'
+    # Generate file path: health_records/id/filename
+    return f'health_records/{instance.id}/{filename}'
 
 class HealthRecord(models.Model):
     class RecordType(models.TextChoices):
@@ -15,7 +16,12 @@ class HealthRecord(models.Model):
         VACCINATION = 'VACCINATION', 'Vaccination'
         OTHER = 'OTHER', 'Other'
 
-    record_id = models.AutoField(primary_key=True)
+    record_id = models.CharField(
+        max_length=50, 
+        unique=True, 
+        editable=False,
+        null=True  # Allow null temporarily for migration
+    )
     record_type = models.CharField(
         max_length=20,
         choices=RecordType.choices,
@@ -62,9 +68,9 @@ class HealthRecord(models.Model):
             raise ValidationError('Patient must be a patient')
 
     def save(self, *args, **kwargs):
-        # If this is a new record, save it first to get the record_id
+        # Generate record_id if it doesn't exist
         if not self.record_id:
-            super().save(*args, **kwargs)
+            self.record_id = f"HR{int(time.time())}"
         super().save(*args, **kwargs)
 
     def delete(self, *args, **kwargs):

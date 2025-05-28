@@ -15,6 +15,20 @@ from .serializers import (
 )
 from .permissions import IsAdminUser, IsDoctor, IsPatient
 from rest_framework_simplejwt.authentication import JWTAuthentication
+from rest_framework import viewsets, status
+from rest_framework.decorators import action
+from rest_framework.response import Response
+from rest_framework.permissions import IsAuthenticated
+from django.utils import timezone
+from datetime import datetime, timedelta
+from .models import DoctorAppointment
+from records.models import HealthRecord
+from .serializers import (
+    AppointmentBookingSerializer,
+    AppointmentResponseSerializer,
+    DoctorAvailabilityResponseSerializer
+)
+from .permissions import IsPatient
 
 User = get_user_model()
 
@@ -242,15 +256,260 @@ class PatientViewSet(viewsets.ModelViewSet):
     """
     permission_classes = [IsPatient]
     serializer_class = UserSerializer
+    authentication_classes = [JWTAuthentication]
 
     def get_queryset(self):
         return User.objects.filter(role=User.Role.PATIENT)
 
+    def get_serializer_class(self):
+        if self.action == 'update_profile':
+            return UserUpdateSerializer
+        return UserSerializer
+
+    @action(detail=False, methods=['get'])
+    def profile(self, request):
+        """Get patient's profile"""
+        try:
+            serializer = self.get_serializer(request.user)
+            return Response({
+                'message': 'Profile retrieved successfully',
+                'user': serializer.data
+            })
+        except Exception as e:
+            return Response({
+                'message': 'Error retrieving profile',
+                'error': str(e)
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+    @action(detail=False, methods=['put'])
+    def update_profile(self, request):
+        """Update patient's profile"""
+        try:
+            serializer = UserUpdateSerializer(request.user, data=request.data, partial=True)
+            if serializer.is_valid():
+                user = serializer.save()
+                return Response({
+                    'message': 'Profile updated successfully',
+                    'user': UserSerializer(user).data
+                })
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+        except Exception as e:
+            return Response({
+                'message': 'Error updating profile',
+                'error': str(e)
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
     @action(detail=False, methods=['get'])
     def my_doctor(self, request):
         """Get the patient's assigned doctor"""
-        doctor = request.user.assigned_doctor
-        if doctor:
-            serializer = self.get_serializer(doctor)
-            return Response(serializer.data)
-        return Response({'message': 'No doctor assigned'}, status=status.HTTP_404_NOT_FOUND)
+        try:
+            doctor = User.objects.filter(
+                role=User.Role.DOCTOR,
+                doctor_appointments__patient=request.user
+            ).first()
+            
+            if doctor:
+                serializer = self.get_serializer(doctor)
+                return Response({
+                    'message': 'Doctor retrieved successfully',
+                    'doctor': serializer.data
+                })
+            return Response({
+                'message': 'No doctor assigned yet',
+                'doctor': None
+            })
+        except Exception as e:
+            return Response({
+                'message': 'Error retrieving doctor',
+                'error': str(e)
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+class AppointmentViewSet(viewsets.ModelViewSet):
+    """
+    ViewSet for handling appointment-related operations
+    """
+    permission_classes = [IsAuthenticated]
+    serializer_class = AppointmentResponseSerializer
+
+    def get_queryset(self):
+        user = self.request.user
+        if user.role == User.Role.DOCTOR:
+            return DoctorAppointment.objects.filter(doctor=user)
+        elif user.role == User.Role.PATIENT:
+            return DoctorAppointment.objects.filter(patient=user)
+        return DoctorAppointment.objects.none()
+
+    @action(detail=False, methods=['get'])
+    def available_doctors(self, request):
+        """Get list of available doctors with their schedules"""
+        try:
+            doctors = User.objects.filter(role=User.Role.DOCTOR)
+            doctors_data = []
+
+            for doctor in doctors:
+                availability = doctor.available_days
+                doctors_data.append({
+                    'id': doctor.id,
+                    'name': f"{doctor.first_name} {doctor.last_name}",
+                    'specialization': doctor.specialization,
+                    'availability': availability,
+                    'appointment_duration': doctor.appointment_duration,
+                    'max_patients_per_day': doctor.max_patients_per_day
+                })
+
+            return Response({
+                'message': 'Available doctors retrieved successfully',
+                'doctors': doctors_data
+            })
+
+        except Exception as e:
+            return Response({
+                'message': 'Error retrieving available doctors',
+                'error': str(e)
+            }, status=status.HTTP_400_BAD_REQUEST)
+
+    @action(detail=False, methods=['get'])
+    def doctor_availability(self, request):
+        """Get specific doctor's availability for a date range"""
+        doctor_id = request.query_params.get('doctor_id')
+        start_date = request.query_params.get('start_date')
+        end_date = request.query_params.get('end_date')
+
+        if not all([doctor_id, start_date, end_date]):
+            return Response({
+                'message': 'Missing required parameters'
+            }, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            doctor = User.objects.get(id=doctor_id, role=User.Role.DOCTOR)
+            
+            # Get existing appointments for the date range
+            existing_appointments = DoctorAppointment.objects.filter(
+                doctor=doctor,
+                appointment_date__range=[start_date, end_date],
+                status=User.AppointmentStatus.SCHEDULED
+            )
+
+            # Get doctor's availability
+            availability = doctor.available_days
+
+            return Response({
+                'message': 'Doctor availability retrieved successfully',
+                'doctor': {
+                    'id': doctor.id,
+                    'name': f"{doctor.first_name} {doctor.last_name}",
+                    'availability': availability,
+                    'existing_appointments': [
+                        {
+                            'date': apt.appointment_date,
+                            'start_time': apt.start_time,
+                            'end_time': apt.end_time
+                        } for apt in existing_appointments
+                    ]
+                }
+            })
+
+        except User.DoesNotExist:
+            return Response({
+                'message': 'Doctor not found'
+            }, status=status.HTTP_404_NOT_FOUND)
+        except Exception as e:
+            return Response({
+                'message': 'Error retrieving doctor availability',
+                'error': str(e)
+            }, status=status.HTTP_400_BAD_REQUEST)
+
+    @action(detail=False, methods=['post'])
+    def book(self, request):
+        """Book a new appointment"""
+        try:
+            # Validate and create appointment
+            serializer = AppointmentBookingSerializer(
+                data=request.data,
+                context={'request': request}
+            )
+            serializer.is_valid(raise_exception=True)
+            appointment = serializer.save()
+
+            # Create initial health record for the appointment
+            health_record = HealthRecord.objects.create(
+                record_type=HealthRecord.RecordType.CONSULTATION,
+                title=f"Appointment with Dr. {appointment.doctor.get_full_name()}",
+                description=f"Initial consultation appointment scheduled for {appointment.appointment_date}",
+                patient=request.user,
+                doctor=appointment.doctor
+            )
+
+            return Response({
+                'message': 'Appointment booked successfully',
+                'appointment': AppointmentResponseSerializer(appointment).data,
+                'health_record': {
+                    'id': health_record.record_id,
+                    'title': health_record.title,
+                    'type': health_record.record_type
+                }
+            }, status=status.HTTP_201_CREATED)
+
+        except Exception as e:
+            return Response({
+                'message': 'Error booking appointment',
+                'error': str(e)
+            }, status=status.HTTP_400_BAD_REQUEST)
+
+    @action(detail=True, methods=['post'])
+    def cancel(self, request, pk=None):
+        """Cancel an existing appointment"""
+        try:
+            appointment = self.get_object()
+            
+            # Check if appointment can be cancelled (e.g., not in the past)
+            if appointment.appointment_date < timezone.now().date():
+                return Response({
+                    'message': 'Cannot cancel past appointments'
+                }, status=status.HTTP_400_BAD_REQUEST)
+
+            # Update appointment status
+            appointment.status = User.AppointmentStatus.CANCELLED
+            appointment.save()
+
+            return Response({
+                'message': 'Appointment cancelled successfully',
+                'appointment': AppointmentResponseSerializer(appointment).data
+            })
+
+        except Exception as e:
+            return Response({
+                'message': 'Error cancelling appointment',
+                'error': str(e)
+            }, status=status.HTTP_400_BAD_REQUEST)
+
+    @action(detail=True, methods=['post'])
+    def reschedule(self, request, pk=None):
+        """Reschedule an existing appointment"""
+        try:
+            appointment = self.get_object()
+            
+            # Validate new appointment time
+            serializer = AppointmentBookingSerializer(
+                data=request.data,
+                context={'request': request}
+            )
+            serializer.is_valid(raise_exception=True)
+            
+            # Update appointment
+            appointment.appointment_date = serializer.validated_data['appointment_date']
+            appointment.start_time = serializer.validated_data['start_time']
+            appointment.end_time = serializer.validated_data['end_time']
+            appointment.save()
+
+            return Response({
+                'message': 'Appointment rescheduled successfully',
+                'appointment': AppointmentResponseSerializer(appointment).data
+            })
+
+        except Exception as e:
+            return Response({
+                'message': 'Error rescheduling appointment',
+                'error': str(e)
+            }, status=status.HTTP_400_BAD_REQUEST)

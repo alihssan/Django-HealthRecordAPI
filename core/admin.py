@@ -3,7 +3,7 @@ from django.contrib.auth.admin import UserAdmin
 from django import forms
 from .models import User, Notification, DoctorAppointment
 from django.utils.html import format_html
-
+import datetime
 class CustomUserCreationForm(forms.ModelForm):
     password1 = forms.CharField(label='Password', widget=forms.PasswordInput)
     password2 = forms.CharField(label='Password confirmation', widget=forms.PasswordInput)
@@ -12,7 +12,8 @@ class CustomUserCreationForm(forms.ModelForm):
     class Meta:
         model = User
         fields = ('username', 'email', 'role', 'first_name', 'last_name', 
-                 'phone_number', 'address', 'location', 'date_of_birth')
+                 'phone_number', 'address', 'location', 'date_of_birth',
+                 'specialization')
 
     def clean_password2(self):
         password1 = self.cleaned_data.get("password1")
@@ -64,6 +65,7 @@ class DoctorAvailabilityForm(forms.ModelForm):
         model = User
         fields = ('username', 'email', 'first_name', 'last_name', 
                  'phone_number', 'address', 'location', 'role',
+                 'specialization',
                  'appointment_duration', 'max_patients_per_day',
                  'date_of_birth')
 
@@ -81,6 +83,8 @@ class DoctorAvailabilityForm(forms.ModelForm):
         role = cleaned_data.get('role')
         
         if role == User.Role.DOCTOR:
+            if not cleaned_data.get('specialization'):
+                raise forms.ValidationError('Specialization is required for doctors')
             available_days = {}
             days = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday']
             
@@ -171,9 +175,16 @@ class DoctorAppointmentForm(forms.ModelForm):
             if not availability.get('is_available', False):
                 raise forms.ValidationError('Doctor is not available on this day')
             
-            if (start_time < availability['start_time'] or 
-                end_time > availability['end_time']):
-                raise forms.ValidationError('Appointment time is outside doctor\'s available hours')
+            # Convert string times to time objects for comparison
+            try:
+                doctor_start_time = datetime.strptime(availability['start_time'], '%H:%M').time()
+                doctor_end_time = datetime.strptime(availability['end_time'], '%H:%M').time()
+                
+                if (start_time < doctor_start_time or 
+                    end_time > doctor_end_time):
+                    raise forms.ValidationError('Appointment time is outside doctor\'s available hours')
+            except (ValueError, KeyError) as e:
+                raise forms.ValidationError(f'Invalid time format in doctor availability: {str(e)}')
 
             # Check for overlapping appointments
             overlapping = DoctorAppointment.objects.filter(
@@ -193,9 +204,9 @@ class DoctorAppointmentForm(forms.ModelForm):
 class CustomUserAdmin(UserAdmin):
     add_form = CustomUserCreationForm
     form = DoctorAvailabilityForm
-    list_display = ('username', 'email', 'role', 'is_active', 'date_joined', 'show_availability')
-    list_filter = ('role', 'is_active', 'is_staff')
-    search_fields = ('username', 'email', 'first_name', 'last_name')
+    list_display = ('username', 'email', 'role', 'specialization', 'is_active', 'date_joined', 'show_availability')
+    list_filter = ('role', 'specialization', 'is_active', 'is_staff')
+    search_fields = ('username', 'email', 'first_name', 'last_name', 'specialization')
     ordering = ('-date_joined',)
     
     add_fieldsets = (
@@ -203,7 +214,7 @@ class CustomUserAdmin(UserAdmin):
             'fields': ('username', 'password1', 'password2')
         }),
         ('Personal info', {
-            'fields': ('first_name', 'last_name', 'email', 'role', 'date_of_birth')
+            'fields': ('first_name', 'last_name', 'email', 'role', 'date_of_birth', 'specialization')
         }),
         ('Contact info', {
             'fields': ('phone_number', 'address', 'location')
@@ -222,6 +233,7 @@ class CustomUserAdmin(UserAdmin):
         }),
         ('Doctor Schedule', {
             'fields': (
+                'specialization',
                 ('monday', 'monday_start', 'monday_end'),
                 ('tuesday', 'tuesday_start', 'tuesday_end'),
                 ('wednesday', 'wednesday_start', 'wednesday_end'),
@@ -288,6 +300,8 @@ class CustomUserAdmin(UserAdmin):
 
     def save_model(self, request, obj, form, change):
         if obj.role == User.Role.DOCTOR:
+            if not obj.specialization:
+                raise forms.ValidationError('Specialization is required for doctors')
             available_days = {}
             days = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday']
             

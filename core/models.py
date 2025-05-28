@@ -1,6 +1,6 @@
 from django.contrib.auth.models import AbstractUser
 from django.db import models
-from datetime import date, time
+from datetime import date, time, datetime
 from django.core.exceptions import ValidationError
 
 # --- User Model ---
@@ -40,7 +40,13 @@ class User(AbstractUser):
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
-    # Doctor Calendar Fields (null for patients)
+    # Doctor-specific Fields
+    specialization = models.CharField(
+        max_length=100,
+        blank=True,
+        null=True,
+        help_text="Doctor's specialization (e.g., Cardiology, Pediatrics)"
+    )
     available_days = models.JSONField(
         null=True, 
         blank=True,
@@ -77,6 +83,10 @@ class User(AbstractUser):
             if not self.email:
                 raise ValidationError({
                     'email': 'Email is required for doctors.'
+                })
+            if not self.specialization:
+                raise ValidationError({
+                    'specialization': 'Specialization is required for doctors.'
                 })
             if not self.available_days:
                 raise ValidationError({
@@ -155,6 +165,16 @@ class User(AbstractUser):
                 doctor_appointments__patient=self
             ).first()
         return None
+
+    @property
+    def doctor_annotations(self):
+        """Get all annotations made by this doctor"""
+        return HealthRecord.objects.filter(doctor=self)
+
+    @property
+    def patient_annotations(self):
+        """Get all annotations for this patient"""
+        return HealthRecord.objects.filter(patient=self)
 
 # --- Notification Model ---
 
@@ -255,9 +275,23 @@ class DoctorAppointment(models.Model):
         if not availability or not availability['is_available']:
             raise ValidationError('Doctor is not available on this day')
         
-        if (self.start_time < availability['start_time'] or 
-            self.end_time > availability['end_time']):
-            raise ValidationError('Appointment time is outside doctor\'s available hours')
+        try:
+            # Convert doctor's availability times to time objects
+            doctor_start_time = datetime.strptime(availability['start_time'], '%H:%M').time()
+            doctor_end_time = datetime.strptime(availability['end_time'], '%H:%M').time()
+            
+            # Ensure appointment times are time objects
+            if not isinstance(self.start_time, time):
+                self.start_time = datetime.strptime(str(self.start_time), '%H:%M').time()
+            if not isinstance(self.end_time, time):
+                self.end_time = datetime.strptime(str(self.end_time), '%H:%M').time()
+            
+            # Compare time objects
+            if (self.start_time < doctor_start_time or 
+                self.end_time > doctor_end_time):
+                raise ValidationError('Appointment time is outside doctor\'s available hours')
+        except (ValueError, KeyError) as e:
+            raise ValidationError(f'Invalid time format: {str(e)}')
 
         # Check for overlapping appointments
         overlapping = DoctorAppointment.objects.filter(
