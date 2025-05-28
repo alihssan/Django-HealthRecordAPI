@@ -132,26 +132,82 @@ django-healthrecordapi/
 
 ## Testing
 
+### Local Testing
+
 ```bash
 # Run all tests
 python manage.py test
 
-# Run specific test
+# Run specific test module
 python manage.py test healthrecords.tests.test_api
+
+# Run specific test class
+python manage.py test healthrecords.tests.test_api.TestHealthRecordAPI
+
+# Run specific test method
+python manage.py test healthrecords.tests.test_api.TestHealthRecordAPI.test_create_record
+
+# Run tests with coverage report
+coverage run manage.py test
+coverage report
+coverage html  # Generates HTML report in htmlcov/
 ```
 
-## Contributing
+### Docker-based Testing
 
-1. Fork the repository
-2. Create your feature branch
-3. Commit your changes
-4. Push to the branch
-5. Create a Pull Request
+The project includes a dedicated Docker Compose configuration for testing. This ensures tests run in an isolated environment with a fresh database.
 
-## License
+1. Run all tests using Docker:
+   ```bash
+   ./run_tests.sh
+   ```
 
-This project is licensed under the MIT License - see the LICENSE file for details.
+   Or manually:
+   ```bash
+   docker compose -f docker-compose.test.yml up --build --abort-on-container-exit
+   ```
 
-## Support
+2. Run specific test modules:
+   ```bash
+   docker compose -f docker-compose.test.yml run --rm web python manage.py test healthrecords.tests.test_api
+   ```
 
-For support, email [support@example.com](mailto:support@example.com) or open an issue in the repository.
+3. Run tests with coverage:
+   ```bash
+   docker compose -f docker-compose.test.yml run --rm web coverage run manage.py test
+   docker compose -f docker-compose.test.yml run --rm web coverage report
+   ```
+
+### Test Database
+
+- Tests use a separate PostgreSQL database (healthrecords_test)
+- Database is automatically created and destroyed for each test run
+- Test data is isolated from development/production data
+
+### Writing Tests
+
+- Place test files in the `tests/` directory
+- Follow Django's test naming conventions
+- Use Django's TestCase class for database tests
+- Use SimpleTestCase for tests that don't need a database
+- Use TransactionTestCase for tests that need transaction control
+
+Example test structure:
+```python
+from django.test import TestCase
+from healthrecords.models import HealthRecord
+
+class TestHealthRecordAPI(TestCase):
+    def setUp(self):
+        # Setup test data
+        pass
+
+    def test_create_record(self):
+        # Test record creation
+        pass
+
+    def test_update_record(self):
+        # Test record update
+        pass
+```
+
